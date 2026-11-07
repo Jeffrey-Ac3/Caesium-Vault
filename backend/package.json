@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "kiwix": "..\\kiwix\\kiwix-serve.exe --library library.xml --port 8080",
+    "kiwix:manage": "..\\kiwix\\kiwix-manage.exe library.xml add resources_folder\\*.zim"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "multer": "^2.5.0",
+    "nodemon": "^3.1.14",
+    "socket.io": "^4.8.4",
+    "sqlite3": "^6.0.1"
+  }
+}
