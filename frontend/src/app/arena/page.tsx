@@ -7,7 +7,8 @@ import { useAuth } from "../components/AuthContext";
 /* ─── Types ─── */
 interface ArenaQuestion {
   id: number;
-  text: string;
+  text?: string;
+  question_text?: string;
   option_a: string;
   option_b: string;
   option_c: string;
@@ -185,7 +186,7 @@ export default function ArenaPage() {
   const submitAnswer = useCallback((option: string) => {
     if (selectedAnswer) return;
     setSelectedAnswer(option);
-    socketRef.current?.emit("student_submit_answer", { answer: option });
+    socketRef.current?.emit("student_submit_answer", { choice: option, answer: option });
   }, [selectedAnswer]);
 
   /* ── Sorted leaderboard ── */
@@ -416,7 +417,7 @@ function TeacherPanel({
               {q.topic}
             </div>
             <p style={{ fontSize: "1.05rem", fontWeight: 600, color: "var(--text)", marginBottom: "1rem" }}>
-              {q.text}
+              {q.text || q.question_text}
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
               {(["A","B","C","D"] as const).map(opt => {
@@ -609,7 +610,7 @@ function StudentPanel({
                 {q.topic}
               </div>
               <p style={{ fontSize: "1.05rem", fontWeight: 600, color: "var(--text)", marginBottom: "1.25rem", lineHeight: 1.5 }}>
-                {q.text}
+                {q.text || q.question_text}
               </p>
 
               {/* Answer options */}

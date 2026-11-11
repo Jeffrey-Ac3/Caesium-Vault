@@ -737,6 +737,7 @@ function broadcastArenaState() {
     totalQuestions: arenaRoom.questions.length,
     topic: currentQ.topic,
     difficulty: currentQ.difficulty,
+    text: currentQ.question_text,
     question_text: currentQ.question_text,
     option_a: currentQ.option_a,
     option_b: currentQ.option_b,
@@ -884,7 +885,8 @@ io.on('connection', (socket) => {
     if (!currentQ) return;
 
     participant.answeredThisRound = true;
-    const isCorrect = data.choice && data.choice.toUpperCase() === currentQ.correct_option.toUpperCase();
+    const submittedChoice = (data.choice || data.answer || "").toString().trim().toUpperCase();
+    const isCorrect = submittedChoice === currentQ.correct_option.toUpperCase();
 
     if (isCorrect) {
       // Speed bonus: max +100 for correct + up to 50 speed points based on remaining time
