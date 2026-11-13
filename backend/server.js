@@ -710,9 +710,10 @@ let arenaRoom = {
 
 // Helper: load random set of questions for match
 function loadMatchQuestions(count, callback) {
-  db.all('SELECT * FROM arena_questions ORDER BY RANDOM() LIMIT ?', [count || 12], (err, rows) => {
+  const targetCount = parseInt(count, 10) || 12;
+  db.all('SELECT * FROM arena_questions ORDER BY RANDOM() LIMIT ?', [targetCount], (err, rows) => {
     if (err || !rows || rows.length === 0) {
-      db.all('SELECT * FROM arena_questions LIMIT 12', [], (err2, rows2) => {
+      db.all('SELECT * FROM arena_questions LIMIT ?', [targetCount], (err2, rows2) => {
         callback(rows2 || []);
       });
     } else {
@@ -723,11 +724,13 @@ function loadMatchQuestions(count, callback) {
 
 function broadcastArenaState() {
   const safeParticipants = Object.values(arenaRoom.participants).map(p => ({
+    socketId: p.socketId,
     name: p.name,
     classGroup: p.classGroup,
     score: p.score,
     streak: p.streak,
-    answeredThisRound: p.answeredThisRound
+    answeredThisRound: p.answeredThisRound,
+    hasAnswered: !!p.currentChoice
   })).sort((a, b) => b.score - a.score);
 
   const currentQ = arenaRoom.questions[arenaRoom.currentQuestionIndex];
@@ -766,6 +769,57 @@ function stopArenaTimer() {
   }
 }
 
+// Evaluate all submitted choices at round completion
+function evaluateRoundAnswers() {
+  const currentQ = arenaRoom.questions[arenaRoom.currentQuestionIndex];
+  if (!currentQ) return;
+
+  const correctOpt = currentQ.correct_option ? currentQ.correct_option.trim().toUpperCase() : 'A';
+
+  Object.keys(arenaRoom.participants).forEach(sid => {
+    const p = arenaRoom.participants[sid];
+    if (!p) return;
+
+    const studentChoice = p.currentChoice ? p.currentChoice.trim().toUpperCase() : null;
+    const isCorrect = studentChoice === correctOpt;
+
+    if (isCorrect) {
+      // Speed bonus: up to 50 points based on remaining time when chosen
+      const speedBonus = Math.round((Math.max(1, p.choiceTimeRemaining || 0) / (arenaRoom.questionTimerSeconds || 30)) * 50);
+      p.streak = (p.streak || 0) + 1;
+      const streakBonus = p.streak >= 3 ? 25 : 0;
+      const roundPoints = 100 + speedBonus + streakBonus;
+      p.score = (p.score || 0) + roundPoints;
+
+      io.to(sid).emit('answer_feedback', {
+        isCorrect: true,
+        pointsEarned: roundPoints,
+        streak: p.streak,
+        chosen: studentChoice,
+        correct_option: correctOpt,
+        explanation: currentQ.explanation
+      });
+    } else {
+      p.streak = 0;
+      io.to(sid).emit('answer_feedback', {
+        isCorrect: false,
+        pointsEarned: 0,
+        streak: 0,
+        chosen: studentChoice || 'None',
+        correct_option: correctOpt,
+        explanation: currentQ.explanation
+      });
+    }
+  });
+
+  io.emit('arena_round_result', {
+    correct_option: currentQ.correct_option,
+    explanation: currentQ.explanation
+  });
+
+  broadcastArenaState();
+}
+
 function startQuestionTimer() {
   stopArenaTimer();
   arenaRoom.timerRemaining = arenaRoom.questionTimerSeconds;
@@ -775,20 +829,18 @@ function startQuestionTimer() {
     arenaRoom.timerRemaining -= 1;
     if (arenaRoom.timerRemaining <= 0) {
       stopArenaTimer();
-      // Round ended: reveal correct answer to teacher/all
-      const currentQ = arenaRoom.questions[arenaRoom.currentQuestionIndex];
-      io.emit('arena_round_result', {
-        correct_option: currentQ.correct_option,
-        explanation: currentQ.explanation
-      });
+      // Round ended: evaluate all submitted choices and broadcast answers
+      evaluateRoundAnswers();
 
-      // Advance after 4 seconds pause
+      // Advance after 4 seconds pause so students see explanations
       setTimeout(() => {
         if (arenaRoom.status !== 'in_progress') return;
         if (arenaRoom.currentQuestionIndex + 1 < arenaRoom.questions.length) {
           arenaRoom.currentQuestionIndex += 1;
-          // reset round answer flags
+          // reset round choices for next question
           Object.keys(arenaRoom.participants).forEach(sid => {
+            arenaRoom.participants[sid].currentChoice = null;
+            arenaRoom.participants[sid].choiceTimeRemaining = 0;
             arenaRoom.participants[sid].answeredThisRound = false;
           });
           startQuestionTimer();
@@ -840,6 +892,8 @@ io.on('connection', (socket) => {
       classGroup: studentClass,
       score: 0,
       streak: 0,
+      currentChoice: null,
+      choiceTimeRemaining: 0,
       answeredThisRound: false
     };
 
@@ -866,6 +920,8 @@ io.on('connection', (socket) => {
       Object.keys(arenaRoom.participants).forEach(sid => {
         arenaRoom.participants[sid].score = 0;
         arenaRoom.participants[sid].streak = 0;
+        arenaRoom.participants[sid].currentChoice = null;
+        arenaRoom.participants[sid].choiceTimeRemaining = 0;
         arenaRoom.participants[sid].answeredThisRound = false;
       });
 
@@ -874,44 +930,28 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 4. Student submits answer for the current question
+  // 4. Student submits or changes answer for the current question
   socket.on('student_submit_answer', (data) => {
     const participant = arenaRoom.participants[socket.id];
-    if (!participant || arenaRoom.status !== 'in_progress' || participant.answeredThisRound) {
+    if (!participant || arenaRoom.status !== 'in_progress' || arenaRoom.timerRemaining <= 0) {
       return;
     }
 
     const currentQ = arenaRoom.questions[arenaRoom.currentQuestionIndex];
     if (!currentQ) return;
 
-    participant.answeredThisRound = true;
     const submittedChoice = (data.choice || data.answer || "").toString().trim().toUpperCase();
-    const isCorrect = submittedChoice === currentQ.correct_option.toUpperCase();
+    if (!['A', 'B', 'C', 'D'].includes(submittedChoice)) return;
 
-    if (isCorrect) {
-      // Speed bonus: max +100 for correct + up to 50 speed points based on remaining time
-      const speedBonus = Math.round((arenaRoom.timerRemaining / arenaRoom.questionTimerSeconds) * 50);
-      participant.streak += 1;
-      const streakBonus = participant.streak >= 3 ? 25 : 0;
-      const roundPoints = 100 + speedBonus + streakBonus;
-      participant.score += roundPoints;
+    // Students can change their answer as many times as they like before the timer runs out
+    participant.currentChoice = submittedChoice;
+    participant.choiceTimeRemaining = arenaRoom.timerRemaining;
+    participant.answeredThisRound = true;
 
-      socket.emit('answer_feedback', {
-        isCorrect: true,
-        pointsEarned: roundPoints,
-        streak: participant.streak,
-        explanation: currentQ.explanation
-      });
-    } else {
-      participant.streak = 0;
-      socket.emit('answer_feedback', {
-        isCorrect: false,
-        pointsEarned: 0,
-        streak: 0,
-        correct_option: currentQ.correct_option,
-        explanation: currentQ.explanation
-      });
-    }
+    socket.emit('answer_registered', {
+      choice: submittedChoice,
+      message: `Option ${submittedChoice} recorded.`
+    });
 
     broadcastArenaState();
   });
@@ -920,20 +960,27 @@ io.on('connection', (socket) => {
   socket.on('teacher_next_question', () => {
     if (arenaRoom.status !== 'in_progress') return;
     stopArenaTimer();
-    if (arenaRoom.currentQuestionIndex + 1 < arenaRoom.questions.length) {
-      arenaRoom.currentQuestionIndex += 1;
-      Object.keys(arenaRoom.participants).forEach(sid => {
-        arenaRoom.participants[sid].answeredThisRound = false;
-      });
-      startQuestionTimer();
-    } else {
-      arenaRoom.status = 'ended';
-      broadcastArenaState();
-    }
+    evaluateRoundAnswers();
+    setTimeout(() => {
+      if (arenaRoom.status !== 'in_progress') return;
+      if (arenaRoom.currentQuestionIndex + 1 < arenaRoom.questions.length) {
+        arenaRoom.currentQuestionIndex += 1;
+        Object.keys(arenaRoom.participants).forEach(sid => {
+          arenaRoom.participants[sid].currentChoice = null;
+          arenaRoom.participants[sid].choiceTimeRemaining = 0;
+          arenaRoom.participants[sid].answeredThisRound = false;
+        });
+        startQuestionTimer();
+      } else {
+        arenaRoom.status = 'ended';
+        broadcastArenaState();
+      }
+    }, 2500);
   });
 
   socket.on('teacher_end_match', () => {
     stopArenaTimer();
+    evaluateRoundAnswers();
     arenaRoom.status = 'ended';
     broadcastArenaState();
   });
@@ -946,6 +993,8 @@ io.on('connection', (socket) => {
     Object.keys(arenaRoom.participants).forEach(sid => {
       arenaRoom.participants[sid].score = 0;
       arenaRoom.participants[sid].streak = 0;
+      arenaRoom.participants[sid].currentChoice = null;
+      arenaRoom.participants[sid].choiceTimeRemaining = 0;
       arenaRoom.participants[sid].answeredThisRound = false;
     });
     broadcastArenaState();

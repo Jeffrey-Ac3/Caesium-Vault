@@ -1,0 +1,54 @@
+## Error Type
+Console Error
+
+## Error Message
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `TeacherPanel`. See https://react.dev/link/warning-keys for more information.
+
+
+    at div (<anonymous>:null:null)
+    at <unknown> (src/app/arena/page.tsx:367:21)
+    at Array.map (<anonymous>:null:null)
+    at TeacherPanel (src/app/arena/page.tsx:366:39)
+    at ArenaPage (src/app/arena/page.tsx:234:9)
+
+## Code Frame
+  365 |                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+  366 |                   {state.participants.map(p => (
+> 367 |                     <div key={p.socketId} style={{
+      |                     ^
+  368 |                       padding: "0.35rem 0.75rem", borderRadius: 20,
+  369 |                       background: AMBER_LIGHT, border: `1px solid ${AMBER_BORDER}`,
+  370 |                       fontSize: "0.8rem", fontWeight: 600, color: AMBER,
+
+Next.js version: 16.3.8 (Turbopack)
+
+
+
+
+## Error Type
+Console Error
+
+## Error Message
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `TeacherPanel`. See https://react.dev/link/warning-keys for more information.
+
+
+    at div (<anonymous>:null:null)
+    at <unknown> (src/app/arena/page.tsx:368:21)
+    at Array.map (<anonymous>:null:null)
+    at TeacherPanel (src/app/arena/page.tsx:367:39)
+    at ArenaPage (src/app/arena/page.tsx:235:9)
+
+## Code Frame
+  366 |                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+  367 |                   {state.participants.map(p => (
+> 368 |                     <div key={p.socketId} style={{
+      |                     ^
+  369 |                       padding: "0.35rem 0.75rem", borderRadius: 20,
+  370 |                       background: AMBER_LIGHT, border: `1px solid ${AMBER_BORDER}`,
+  371 |                       fontSize: "0.8rem", fontWeight: 600, color: AMBER,
+
+Next.js version: 16.3.8 (Turbopack)
